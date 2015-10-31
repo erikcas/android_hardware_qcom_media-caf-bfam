@@ -574,6 +574,7 @@ omx_vdec::omx_vdec(): m_error_propogated(false),
     m_disp_hor_size(0),
     m_disp_vert_size(0),
     prev_ts(LLONG_MAX),
+    prev_ts_actual(LLONG_MAX),
     rst_prev_ts(true),
     frm_int(0),
     in_reconfig(false),
@@ -1251,29 +1252,15 @@ void omx_vdec::process_event_cb(void *ctxt, unsigned char id)
                                         }  else if (p2 == OMX_IndexConfigCommonOutputCrop) {
                                             DEBUG_PRINT_HIGH("Rxd PORT_RECONFIG: OMX_IndexConfigCommonOutputCrop");
 
-                                            /* Check if resolution is changed in smooth streaming mode */
-                                            if (pThis->m_smoothstreaming_mode &&
-                                                (pThis->framesize.nWidth !=
-                                                    pThis->drv_ctx.video_resolution.frame_width) ||
-                                                (pThis->framesize.nHeight !=
-                                                    pThis->drv_ctx.video_resolution.frame_height)) {
+                                            DEBUG_PRINT_HIGH("Resolution changed from: wxh = %dx%d to: wxh = %dx%d",
+                                                pThis->framesize.nWidth,
+                                                pThis->framesize.nHeight,
+                                                pThis->drv_ctx.video_resolution.frame_width,
+                                                pThis->drv_ctx.video_resolution.frame_height);
 
-                                                DEBUG_PRINT_HIGH("Resolution changed from: wxh = %dx%d to: wxh = %dx%d",
-                                                        pThis->framesize.nWidth,
-                                                        pThis->framesize.nHeight,
-                                                        pThis->drv_ctx.video_resolution.frame_width,
-                                                        pThis->drv_ctx.video_resolution.frame_height);
-
-                                                /* Update new resolution */
-                                                pThis->framesize.nWidth =
-                                                       pThis->drv_ctx.video_resolution.frame_width;
-                                                pThis->framesize.nHeight =
-                                                       pThis->drv_ctx.video_resolution.frame_height;
-
-                                                /* Update C2D with new resolution */
-                                                if (!pThis->client_buffers.update_buffer_req()) {
-                                                    DEBUG_PRINT_ERROR("Setting C2D buffer requirements failed");
-                                                }
+                                            /* Update C2D with new resolution */
+                                            if (!pThis->client_buffers.update_buffer_req()) {
+                                                DEBUG_PRINT_ERROR("Setting C2D buffer requirements failed");
                                             }
 
                                             /* Update new crop information */
@@ -2065,6 +2052,13 @@ OMX_ERRORTYPE omx_vdec::component_init(OMX_STRING role)
                 drv_ctx.video_driver_fd);
     }
     //memset(&h264_mv_buff,0,sizeof(struct h264_mv_buffer));
+    control.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY;
+    control.value = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE;
+
+    if (ioctl(drv_ctx.video_driver_fd, VIDIOC_S_CTRL, &control)) {
+        DEBUG_PRINT_ERROR("Failed to set Default Priority");
+        eRet = OMX_ErrorUnsupportedSetting;
+    }
     return eRet;
 }
 
@@ -3950,7 +3944,7 @@ OMX_ERRORTYPE  omx_vdec::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
                 break;
             }
             if (m_disable_dynamic_buf_mode) {
-                DEBUG_PRINT_HIGH("Dynamic buffer mode disabled by setprop");
+                DEBUG_PRINT_HIGH("Dynamic buffer mode is disabled");
                 eRet = OMX_ErrorUnsupportedSetting;
                 break;
             }
@@ -4037,6 +4031,15 @@ OMX_ERRORTYPE  omx_vdec::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
             break;
         }
 
+        case OMX_QTIIndexParamVideoPreferAdaptivePlayback:
+        {
+            DEBUG_PRINT_LOW("set_parameter: OMX_QTIIndexParamVideoPreferAdaptivePlayback");
+            m_disable_dynamic_buf_mode = ((QOMX_ENABLETYPE *)paramData)->bEnable;
+            if (m_disable_dynamic_buf_mode) {
+                DEBUG_PRINT_HIGH("Prefer Adaptive Playback is set");
+            }
+            break;
+        }
 #endif
         case OMX_QcomIndexParamVideoCustomBufferSize:
         {
@@ -4437,6 +4440,39 @@ OMX_ERRORTYPE  omx_vdec::set_config(OMX_IN OMX_HANDLETYPE      hComp,
         }
 
         return ret;
+    } else if ((int)configIndex == (int)OMX_IndexConfigPriority) {
+        OMX_PARAM_U32TYPE *priority = (OMX_PARAM_U32TYPE *)configData;
+        DEBUG_PRINT_LOW("Set_config: priority %d", priority->nU32);
+
+        struct v4l2_control control;
+
+        control.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY;
+        if (priority->nU32 == 0)
+            control.value = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_ENABLE;
+        else
+            control.value = V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE;
+
+        if (ioctl(drv_ctx.video_driver_fd, VIDIOC_S_CTRL, &control)) {
+            DEBUG_PRINT_ERROR("Failed to set Priority");
+            ret = OMX_ErrorUnsupportedSetting;
+        }
+        return ret;
+    } else if ((int)configIndex == (int)OMX_IndexConfigOperatingRate) {
+        OMX_PARAM_U32TYPE *rate = (OMX_PARAM_U32TYPE *)configData;
+        DEBUG_PRINT_LOW("Set_config: operating-rate %u fps", rate->nU32 >> 16);
+
+        struct v4l2_control control;
+
+        control.id = V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE;
+        control.value = rate->nU32;
+
+        if (ioctl(drv_ctx.video_driver_fd, VIDIOC_S_CTRL, &control)) {
+            ret = errno == -EBUSY ? OMX_ErrorInsufficientResources :
+                    OMX_ErrorUnsupportedSetting;
+            DEBUG_PRINT_ERROR("Failed to set operating rate %u fps (%s)",
+                    rate->nU32 >> 16, errno == -EBUSY ? "HW Overload" : strerror(errno));
+        }
+        return ret;
     }
 
     return OMX_ErrorNotImplemented;
@@ -4499,6 +4535,8 @@ OMX_ERRORTYPE  omx_vdec::get_extension_index(OMX_IN OMX_HANDLETYPE      hComp,
 #ifdef ADAPTIVE_PLAYBACK_SUPPORTED
     else if (extn_equals(paramName, "OMX.google.android.index.prepareForAdaptivePlayback")) {
         *indexType = (OMX_INDEXTYPE)OMX_QcomIndexParamVideoAdaptivePlaybackMode;
+    } else if (extn_equals(paramName, OMX_QTI_INDEX_PARAM_VIDEO_PREFER_ADAPTIVE_PLAYBACK)) {
+        *indexType = (OMX_INDEXTYPE)OMX_QTIIndexParamVideoPreferAdaptivePlayback;
     }
 #endif
 #ifdef FLEXYUV_SUPPORTED
@@ -9009,8 +9047,8 @@ void omx_vdec::set_frame_rate(OMX_S64 act_timestamp)
     OMX_U32 new_frame_interval = 0;
     if (VALID_TS(act_timestamp) && VALID_TS(prev_ts) && act_timestamp != prev_ts
             && llabs(act_timestamp - prev_ts) > 2000) {
-        new_frame_interval = client_set_fps ? frm_int :
-            llabs(act_timestamp - prev_ts);
+        new_frame_interval = client_set_fps ? frm_int : (act_timestamp - prev_ts) > 0 ?
+            llabs(act_timestamp - prev_ts) : llabs(act_timestamp - prev_ts_actual);
         if (new_frame_interval != frm_int || frm_int == 0) {
             frm_int = new_frame_interval;
             if (frm_int) {
@@ -9046,11 +9084,13 @@ void omx_vdec::adjust_timestamp(OMX_S64 &act_timestamp)
 {
     if (rst_prev_ts && VALID_TS(act_timestamp)) {
         prev_ts = act_timestamp;
+        prev_ts_actual = act_timestamp;
         rst_prev_ts = false;
     } else if (VALID_TS(prev_ts)) {
         bool codec_cond = (drv_ctx.timestamp_adjust)?
-            (!VALID_TS(act_timestamp) || act_timestamp < prev_ts || llabs(act_timestamp - prev_ts) <= 2000) :
-            (!VALID_TS(act_timestamp) || act_timestamp <= prev_ts);
+            (!VALID_TS(act_timestamp) || act_timestamp < prev_ts_actual || llabs(act_timestamp - prev_ts_actual) <= 2000) :
+            (!VALID_TS(act_timestamp) || act_timestamp <= prev_ts_actual);
+             prev_ts_actual = act_timestamp; //unadjusted previous timestamp
         if (frm_int > 0 && codec_cond) {
             DEBUG_PRINT_LOW("adjust_timestamp: original ts[%lld]", act_timestamp);
             act_timestamp = prev_ts + frm_int;

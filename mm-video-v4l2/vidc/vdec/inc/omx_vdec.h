@@ -93,6 +93,7 @@ extern "C" {
 #include "OMX_Core.h"
 #include "OMX_QCOMExtns.h"
 #include "OMX_VideoExt.h"
+#include "OMX_IndexExt.h"
 #include "qc_omx_component.h"
 #include <linux/msm_vidc_dec.h>
 #include <media/msm_vidc.h>
@@ -878,8 +879,8 @@ class omx_vdec: public qc_omx_component
         OMX_U32 m_demux_entries;
         OMX_U32 m_disp_hor_size;
         OMX_U32 m_disp_vert_size;
-
         OMX_S64 prev_ts;
+        OMX_S64 prev_ts_actual;
         bool rst_prev_ts;
         OMX_U32 frm_int;
 
