@@ -42,8 +42,8 @@ LOCAL_PATH:= $(ROOT_DIR)
 
 libmm-vidpp-inc          += $(LOCAL_PATH)/inc
 libmm-vidpp-inc          += $(OMX_VIDEO_PATH)/vidc/common/inc
-libmm-vidpp-inc          += hardware/qcom-caf-bfam/media/mm-core/inc
-libmm-vidpp-inc          += $(TARGET_OUT_HEADERS)/qcom/display-caf-bfam
+libmm-vidpp-inc          += hardware/qcom-caf-msm8994/media/mm-core/inc
+libmm-vidpp-inc          += $(TARGET_OUT_HEADERS)/qcom/display-caf-msm8994
 libmm-vidpp-inc          += frameworks/native/include/media/openmax
 libmm-vidpp-inc          += frameworks/native/include/media/hardware
 libmm-vidpp-inc          += $(vidpp-inc)

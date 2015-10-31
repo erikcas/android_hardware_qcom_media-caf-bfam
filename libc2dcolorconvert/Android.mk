@@ -8,7 +8,7 @@ LOCAL_SRC_FILES := \
 LOCAL_C_INCLUDES := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
 
 LOCAL_C_INCLUDES += \
-    $(TARGET_OUT_HEADERS)/qcom/display-caf-bfam
+    $(TARGET_OUT_HEADERS)/qcom/display-caf-msm8994
 
 LOCAL_SHARED_LIBRARIES := liblog libdl
 

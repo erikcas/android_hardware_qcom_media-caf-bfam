@@ -1,4 +1,4 @@
-ifeq ($(TARGET_QCOM_MEDIA_VARIANT),caf-bfam)
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),caf-msm8994)
 QCOM_MEDIA_ROOT := $(call my-dir)
 $(warning target list is : $(MSM_VIDC_TARGET_LIST))
 
